@@ -133,6 +133,9 @@ function M.toggle_with_path(fm_path)
 			cmd = fm_cmd,
 			hidden = true,
 			direction = "float",
+			float_opts = {
+				border = "none",
+			},
 			on_exit = function()
 				fm_term = nil
 			end,
