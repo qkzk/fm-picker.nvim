@@ -82,6 +82,18 @@ local function handle_message(err, data, client)
 	end
 end
 
+---Set permissions to 600 (owner can read & write, others can't do anything)
+---and ensure the file is deleted before closing neovim.
+---@param fm_nvim_socket_path string the file path
+local function chmod_and_ensure_is_deleted(fm_nvim_socket_path)
+	vim.loop.fs_chmod(fm_nvim_socket_path, 384)
+	vim.api.nvim_create_autocmd("VimLeavePre", {
+		callback = function()
+			os.remove(fm_nvim_socket_path)
+		end,
+	})
+end
+
 ---Start a server listening on `fm_nvim_socket_path` and awaiting IPC commands.
 ---Handle the received commands and close the connection if need be.
 ---@param fm_nvim_socket_path string filepath to the UNIX socket file used by fm to send msg to neovim
@@ -89,6 +101,7 @@ local function start_reply_socket(fm_nvim_socket_path)
 	local server = vim.loop.new_pipe(false)
 	local ok, err = pcall(function()
 		vim.loop.pipe_bind(server, fm_nvim_socket_path)
+		chmod_and_ensure_is_deleted(fm_nvim_socket_path)
 	end)
 	if not ok then
 		vim.notify("Error binding socket reply: " .. err, vim.log.levels.ERROR)
@@ -186,10 +199,11 @@ end
 ---Entry point of the plugin.
 ---@param fm_path string filepath to the fm executable.
 function M.toggle_with_path(fm_path)
+	local runtime_dir = os.getenv("XDG_RUNTIME_DIR") or "/tmp"
 	-- socket used to send messages from fm to nvim
-	local nvim_fm_socket_path = "/tmp/nvim-fm-" .. tostring(vim.fn.getpid()) .. ".sock"
+	local nvim_fm_socket_path = runtime_dir .. "/nvim-fm-" .. tostring(vim.fn.getpid()) .. ".sock"
 	-- socket used to send messages from nvim to fmnvim
-	local fm_nvim_socket_path = "/tmp/fm-nvim-" .. tostring(vim.fn.getpid()) .. ".sock"
+	local fm_nvim_socket_path = runtime_dir .. "/fm-nvim-" .. tostring(vim.fn.getpid()) .. ".sock"
 	local file_path = vim.api.nvim_buf_get_name(0)
 	local server_path = vim.v.servername
 
