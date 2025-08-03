@@ -5,8 +5,9 @@ local config = {
 	fm_path = "/usr/bin/fm",
 }
 
+--- Update the config
+---@param user_config table
 function M.setup(user_config)
-	--- update the config
 	config = vim.tbl_deep_extend("force", config, user_config or {})
 end
 
