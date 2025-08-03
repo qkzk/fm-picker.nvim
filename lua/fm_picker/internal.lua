@@ -3,17 +3,28 @@ local fm_term
 local Toggleterm = require("toggleterm.terminal").Terminal
 local selected_filepath = nil
 
----Close all opened buffers with this filepath
----@param path string filename of the buffer which should be deleted
-local function delete_buffer_by_path(path)
+---Get the index of a buffer from its path
+---@param path string filename of the buffer
+---@return integer | nil buf the buf number or nil if the file isn't opened
+local function find_buffer_by_path(path)
 	local bufs = vim.api.nvim_list_bufs()
 	for _, buf in ipairs(bufs) do
 		if vim.api.nvim_buf_is_loaded(buf) then
 			local name = vim.api.nvim_buf_get_name(buf)
 			if vim.fn.fnamemodify(name, ":p") == vim.fn.fnamemodify(path, ":p") then
-				vim.api.nvim_buf_delete(buf, { force = true })
+				return buf
 			end
 		end
+	end
+	return nil
+end
+
+---Close all opened buffers with this filepath
+---@param path string filename of the buffer which should be deleted
+local function delete_buffer_by_path(path)
+	local buf = find_buffer_by_path(path)
+	if buf then
+		vim.api.nvim_buf_delete(buf, { force = true })
 	end
 end
 
@@ -24,7 +35,13 @@ local function open_buffer_by_path(filepath)
 		selected_filepath = filepath
 		fm_term:toggle()
 	end
-	vim.cmd("edit " .. vim.fn.fnameescape(filepath))
+	filepath = vim.fn.fnameescape(filepath)
+	local buf = find_buffer_by_path(filepath)
+	if buf then
+		vim.api.nvim_set_current_buf(buf)
+	else
+		vim.cmd("edit " .. filepath)
+	end
 end
 
 ---Parse and execute messages.
