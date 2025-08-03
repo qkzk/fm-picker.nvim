@@ -3,7 +3,7 @@ local fm_term
 local Toggleterm = require("toggleterm.terminal").Terminal
 local selected_filepath = nil
 
----Get the index of a buffer from its path
+---Get the index of a buffer from its path. Returns nil if the file isn't opened in a buffer.
 ---@param path string filename of the buffer
 ---@return integer | nil buf the buf number or nil if the file isn't opened
 local function find_buffer_by_path(path)
@@ -95,25 +95,25 @@ local function start_reply_socket(fm_nvim_socket_path)
 		return
 	end
 
-	vim.loop.listen(server, 128, function(err)
-		if err then
-			vim.notify("Error receiving reply from fm: " .. err, vim.log.levels.ERROR)
+	vim.loop.listen(server, 128, function(error)
+		if error then
+			vim.notify("Error receiving reply from fm: " .. error, vim.log.levels.ERROR)
 			return
 		end
 
 		local client = vim.loop.new_pipe(false)
 		vim.loop.accept(server, client)
 
-		vim.loop.read_start(client, function(err, data)
-			handle_message(err, data, client)
+		vim.loop.read_start(client, function(error2, data)
+			handle_message(error2, data, client)
 		end)
 	end)
 end
 
 ---Send a message through UNIX Socket.
----NB. Since the only kind of message we want to send is "go", there's no message parameter.
+---NB. Since the only kind of message we want to send is "GO", there's no message parameter.
 ---It may change in the future if we decide to implement more possible actions.
----fm-tui allows more message like "KEY <key>" or "ACTION <action>" which may take full control of the process.
+---fm-tui allows more messages like "KEY <key>" or "ACTION <action>" which may take full control of the application.
 ---@param nvim_fm_socket_path string filepath to the UNIX socket file used by neovim to send msg to fm
 local function send_to_fm_socket(nvim_fm_socket_path, file_path)
 	local sock = vim.loop.new_pipe(false)
@@ -133,21 +133,53 @@ end
 ---Creates the fm _command_ with all required parameters.
 ---Doens't run the command itself.
 ---Requires fm_tui version >=0.2.1
+---Starts fm with
+---logs enabled: -l
+---NVIM server adress: -s server_path
+---current buffer path: -p file_path
+---input socket (nvim -> fm): --input-socket nvim_fm_socket_path
+---output socket (fm -> nvim) --output-socket fm_nvim_socket_path
 ---@param fm_path string filepath to fm executable
----@param servername string servername opened by neovim. Won't be use and may be removed once the API stabilized.
+---@param server_path string server_path opened by neovim. Won't be use and may be removed once the API stabilized.
 ---@param file_path string filepath of the current buffer which will be selected.
 ---@param nvim_fm_socket_path string filepath to the socket used to send message from nvim to fm.
 ---@param fm_nvim_socket_path string filepath to the socket used to send message from fm to nvim.
-local function build_fm_command(fm_path, servername, file_path, nvim_fm_socket_path, fm_nvim_socket_path)
+local function build_fm_command(fm_path, server_path, file_path, nvim_fm_socket_path, fm_nvim_socket_path)
 	return fm_path
 		.. " --neovim -l -s "
-		.. servername
+		.. server_path
 		.. " -p "
 		.. file_path
 		.. " --input-socket "
 		.. nvim_fm_socket_path
 		.. " --output-socket "
 		.. fm_nvim_socket_path
+end
+
+---Open fm-tui file manager in a new toggle term window.
+---@param fm_cmd string the command used to open fm
+---@return Terminal the toggle term instance
+local function open_fm_with_toggle_term(fm_cmd)
+	return Toggleterm:new({
+		cmd = fm_cmd,
+		hidden = true,
+		direction = "float",
+		float_opts = {
+			border = "none",
+		},
+		on_exit = function()
+			fm_term = nil
+		end,
+		on_close = function()
+			if selected_filepath then
+				local path = selected_filepath
+				selected_filepath = nil
+				vim.schedule(function()
+					vim.cmd("edit " .. vim.fn.fnameescape(path))
+				end)
+			end
+		end,
+	})
 end
 
 ---Toggle the FM file picker.
@@ -159,33 +191,13 @@ function M.toggle_with_path(fm_path)
 	-- socket used to send messages from nvim to fmnvim
 	local fm_nvim_socket_path = "/tmp/fm-nvim-" .. tostring(vim.fn.getpid()) .. ".sock"
 	local file_path = vim.api.nvim_buf_get_name(0)
-	local servername = vim.v.servername
+	local server_path = vim.v.servername
 
 	-- Creates the terminal with fm if it doesn't exist yet
 	if not fm_term then
 		vim.notify("opened reply socket")
-		local fm_cmd = build_fm_command(fm_path, servername, file_path, nvim_fm_socket_path, fm_nvim_socket_path)
-
-		fm_term = Toggleterm:new({
-			cmd = fm_cmd,
-			hidden = true,
-			direction = "float",
-			float_opts = {
-				border = "none",
-			},
-			on_exit = function()
-				fm_term = nil
-			end,
-			on_close = function()
-				if selected_filepath then
-					local path = selected_filepath
-					selected_filepath = nil
-					vim.schedule(function()
-						vim.cmd("edit " .. vim.fn.fnameescape(path))
-					end)
-				end
-			end,
-		})
+		local fm_cmd = build_fm_command(fm_path, server_path, file_path, nvim_fm_socket_path, fm_nvim_socket_path)
+		fm_term = open_fm_with_toggle_term(fm_cmd)
 		start_reply_socket(fm_nvim_socket_path)
 	else
 		send_to_fm_socket(nvim_fm_socket_path, file_path)
