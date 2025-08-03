@@ -28,14 +28,9 @@ local function delete_buffer_by_path(path)
 	end
 end
 
----Open path in buffer and toggle fm
+---Open path in buffer and toggle fm. If the file is already opened, it selects the buffer.
 ---@param filepath string filename of the picked file which should be opened in neovim
 local function open_buffer_by_path(filepath)
-	if fm_term then
-		selected_filepath = filepath
-		fm_term:toggle()
-	end
-	filepath = vim.fn.fnameescape(filepath)
 	local buf = find_buffer_by_path(filepath)
 	if buf then
 		vim.api.nvim_set_current_buf(buf)
@@ -44,14 +39,25 @@ local function open_buffer_by_path(filepath)
 	end
 end
 
----Parse and execute messages.
+---Pick a buffer in neovim by opening it or selecting it.
+---@param filepath string
+local function pick_filepath(filepath)
+	if fm_term then
+		selected_filepath = filepath
+		fm_term:toggle()
+	end
+	filepath = vim.fn.fnameescape(filepath)
+	open_buffer_by_path(filepath)
+end
+
+---Parse and execute messages sent by fm to neovim.
 ---@param data string received message through receiving socket.
 local function handle_data(data)
 	local msg = vim.trim(data)
 	if vim.startswith(msg, "OPEN ") then
 		local filepath = msg:sub(6)
 		vim.schedule(function()
-			open_buffer_by_path(filepath)
+			pick_filepath(filepath)
 		end)
 	elseif vim.startswith(msg, "DELETE ") then
 		local filepath = msg:sub(8)
@@ -99,26 +105,26 @@ end
 ---@param fm_nvim_socket_path string filepath to the UNIX socket file used by fm to send msg to neovim
 local function start_reply_socket(fm_nvim_socket_path)
 	local server = vim.loop.new_pipe(false)
-	local ok, err = pcall(function()
+	local ok, error1 = pcall(function()
 		vim.loop.pipe_bind(server, fm_nvim_socket_path)
 		chmod_and_ensure_is_deleted(fm_nvim_socket_path)
 	end)
 	if not ok then
-		vim.notify("Error binding socket reply: " .. err, vim.log.levels.ERROR)
+		vim.notify("Error binding socket reply: " .. error1, vim.log.levels.ERROR)
 		return
 	end
 
-	vim.loop.listen(server, 128, function(error)
-		if error then
-			vim.notify("Error receiving reply from fm: " .. error, vim.log.levels.ERROR)
+	vim.loop.listen(server, 128, function(error2)
+		if error2 then
+			vim.notify("Error receiving reply from fm: " .. error2, vim.log.levels.ERROR)
 			return
 		end
 
 		local client = vim.loop.new_pipe(false)
 		vim.loop.accept(server, client)
 
-		vim.loop.read_start(client, function(error2, data)
-			handle_message(error2, data, client)
+		vim.loop.read_start(client, function(error3, data)
+			handle_message(error3, data, client)
 		end)
 	end)
 end
@@ -188,7 +194,7 @@ local function open_fm_with_toggle_term(fm_cmd)
 				local path = selected_filepath
 				selected_filepath = nil
 				vim.schedule(function()
-					vim.cmd("edit " .. vim.fn.fnameescape(path))
+					open_buffer_by_path(vim.fn.fnameescape(path))
 				end)
 			end
 		end,
