@@ -1,7 +1,6 @@
 local M = {}
 local fm_term
 local Toggleterm = require("toggleterm.terminal").Terminal
-local selected_filepath = nil
 
 ---Get the index of a buffer from its path. Returns nil if the file isn't opened in a buffer.
 ---@param path string filename of the buffer
@@ -43,8 +42,10 @@ end
 ---@param filepath string
 local function pick_filepath(filepath)
 	if fm_term then
-		selected_filepath = filepath
-		fm_term:toggle()
+		fm_term:close()
+		vim.schedule(function()
+			open_buffer_by_path(vim.fn.fnameescape(filepath))
+		end)
 	end
 	filepath = vim.fn.fnameescape(filepath)
 	open_buffer_by_path(filepath)
@@ -188,15 +189,6 @@ local function open_fm_with_toggle_term(fm_cmd)
 		},
 		on_exit = function()
 			fm_term = nil
-		end,
-		on_close = function()
-			if selected_filepath then
-				local path = selected_filepath
-				selected_filepath = nil
-				vim.schedule(function()
-					open_buffer_by_path(vim.fn.fnameescape(path))
-				end)
-			end
 		end,
 	})
 end
